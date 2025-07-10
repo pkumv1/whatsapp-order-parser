@@ -131,7 +131,7 @@ Return a JSON object with an "orders" array where each order has these fields:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'llama3-8b-8192', // Updated to currently supported model
+          model: 'llama3-70b-8192', // Updated to most powerful Llama 3 70B model
           messages: [
             { role: 'system', content: finalSystemPrompt },
             { role: 'user', content: userPrompt }
@@ -526,7 +526,7 @@ Return a JSON object with an "orders" array where each order has these fields:
           )}
           
           <p className="text-amber-600 text-sm mt-2">
-            Note: Using llama3-8b-8192 model (updated from deprecated mixtral-8x7b)
+            Note: Using Llama 3 70B model (llama3-70b-8192) - Best for complex data parsing
           </p>
         </div>
 
