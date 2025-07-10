@@ -11,12 +11,21 @@ A React application that parses WhatsApp group messages to extract and organize 
 - **CSV Export**: Export parsed orders as CSV files
 - **Local API Key Storage**: Secure browser-based storage for API keys
 
+## Advanced Parsing Capabilities
+
+- **Multi-line Messages**: Handles messages that span multiple lines
+- **Emojis**: Automatically strips emojis from messages
+- **Abbreviated Product Names**: Recognizes "Dragon" as "Dragon Fruit"
+- **Ellipsis Handling**: Processes messages with "..." or "…"
+- **Shared Quantities**: Understands "one kg each" applying to multiple products
+- **Flexible House Numbers**: Recognizes various formats (A1-102, B1 324, A3 1319)
+
 ## Supported Products
 
 - Ginger Tea
 - Masala Tea / Masala Chai
 - Avocado (handles variations: avocado, avacado, avokado)
-- Dragon Fruit
+- Dragon Fruit (also recognizes "Dragon" alone)
 - Cardamom
 
 ## Getting Started
@@ -86,10 +95,25 @@ The app will be automatically deployed and you'll get a URL like `https://your-a
 
 ## Message Format Examples
 
+The parser handles various message formats:
+
 ```
+Standard format:
 [07-07-2025 16:10] +91 96198 82148: Ginger tea 250 gm and masala tea 250gm A1 1023
+
+With ellipsis and shared quantity:
+[10-07-2025 13:32] +91 94482 21132: Avacado and Dragon … one kg each . A1-102.
+
+With emoji:
+[10-07-2025 06:18] +91 94820 72265: 1 kg Avacado 1kg Dragon fruit B1 324😊
+
+Multi-line message:
+[10-07-2025 06:14] +91 90354 83811: 1 kg Avacado
+1 kg Dragon fruit 
+A3 1319
+
+Complex order:
 [09-07-2025 19:10] +91 98442 38802: A4-1215 - 1 kg avokado, 1kg dragon fruit.
-[09-07-2025 19:12] +91 96876 89501: 4 pieces of avacado 1 kg of dragon fruit B4 1216
 ```
 
 ## Development
@@ -122,6 +146,16 @@ const commonProducts = [
   { regex: /your\s*product/i, name: 'Your Product' }
 ];
 ```
+
+## Latest Updates
+
+- **v0.2.0**: Enhanced parser to handle:
+  - Multi-line messages
+  - Emoji removal
+  - Abbreviated product names (e.g., "Dragon" for "Dragon Fruit")
+  - Ellipsis in messages
+  - "One kg each" pattern for multiple products
+  - More flexible house number formats
 
 ## License
 
