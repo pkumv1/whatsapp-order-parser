@@ -1,0 +1,487 @@
+import React, { useState, useEffect } from 'react';
+import { MessageSquare, Sparkles, Download, Trash2, Key, AlertCircle, X } from 'lucide-react';
+import './App.css';
+
+const WhatsAppOrderParser = () => {
+  const [messages, setMessages] = useState('');
+  const [parsedOrders, setParsedOrders] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [apiKey, setApiKey] = useState('');
+  const [showApiKeyModal, setShowApiKeyModal] = useState(true);
+  const [apiKeyError, setApiKeyError] = useState('');
+
+  // Load API key from localStorage on mount
+  useEffect(() => {
+    const savedKey = localStorage.getItem('groq_api_key');
+    if (savedKey) {
+      setApiKey(savedKey);
+      setShowApiKeyModal(false);
+    }
+  }, []);
+
+  // Save API key to localStorage
+  const saveApiKey = () => {
+    if (!apiKey.trim()) {
+      setApiKeyError('Please enter a valid API key');
+      return;
+    }
+    localStorage.setItem('groq_api_key', apiKey);
+    setShowApiKeyModal(false);
+    setApiKeyError('');
+  };
+
+  // Parse with GROQ API
+  const parseWithGroq = async (messageText) => {
+    const systemPrompt = `You are an order parser for a WhatsApp fruit and vegetable business. 
+Extract orders from WhatsApp messages and return structured JSON data.
+
+Each message follows pattern: [Date Time] Phone: Order details
+
+Products to look for:
+- Ginger Tea (variations: ginger tea, Ginger tea)
+- Masala Tea (variations: masala tea, masala chai, Masala Chai)
+- Avocado (variations: avocado, avacado, avokado)
+- Dragon Fruit (variations: dragon fruit, Dragon fruit)
+- Cardamom
+
+Extract:
+- Date (DD-MM-YYYY format from square brackets)
+- Time (HH:MM format from square brackets)
+- Phone number (extract the full number after the time)
+- Customer name (if mentioned after "for" or at end after dash)
+- House number (format like A1-1023, B4-512, etc.)
+- Products ordered (handle multiple products per message)
+- Quantity for each product
+- Unit (gm, kg, pieces)
+
+Important: If a message contains multiple products, create separate entries for each product with the same customer details.
+
+Return a JSON object with an "orders" array where each order has these fields:
+{
+  "orders": [
+    {
+      "date": "DD-MM-YYYY",
+      "time": "HH:MM",
+      "phone": "+91XXXXXXXXXX",
+      "customerName": "Name or Unknown",
+      "houseNumber": "A1-1023 or Not specified",
+      "product": "Product Name",
+      "quantity": 250,
+      "unit": "gm"
+    }
+  ]
+}`;
+
+    const userPrompt = `Parse these WhatsApp orders and return structured JSON:\n\n${messageText}`;
+
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'mixtral-8x7b-32768',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userPrompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 2000,
+          response_format: { type: 'json_object' }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API Error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      const result = JSON.parse(data.choices[0].message.content);
+      
+      // Add price and amount fields (you can customize these)
+      const ordersWithPricing = result.orders.map(order => ({
+        ...order,
+        pricePerUnit: 0,
+        amount: 0
+      }));
+      
+      return ordersWithPricing;
+    } catch (error) {
+      console.error('GROQ API Error:', error);
+      throw error;
+    }
+  };
+
+  // Fallback parser (when no API key or API fails)
+  const fallbackParser = (messageText) => {
+    const lines = messageText.split('\n').filter(line => line.trim());
+    const orders = [];
+    
+    for (const line of lines) {
+      const messageMatch = line.match(/\[(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})\]\s+(\+\d+\s+\d+\s+\d+):\s*(.+)/);
+      
+      if (messageMatch) {
+        const [, date, time, phone, content] = messageMatch;
+        
+        const namePatterns = [
+          /for\s+([A-Za-z]+)\s+[A-Z]\d/i,
+          /[–-]\s*([A-Za-z]+)$/,
+          /Good\s+morning\s+([A-Za-z]+)/i
+        ];
+        
+        let customerName = '';
+        for (const pattern of namePatterns) {
+          const nameMatch = content.match(pattern);
+          if (nameMatch) {
+            customerName = nameMatch[1];
+            break;
+          }
+        }
+        
+        const housePattern = /([A-Z]\d+[\s-]\d+)/;
+        const houseMatch = content.match(housePattern);
+        const houseNumber = houseMatch ? houseMatch[1].replace(/\s/g, '-') : '';
+        
+        const products = [];
+        
+        let cleanContent = content
+          .replace(houseNumber, '')
+          .replace(/Good\s+morning\s+\w+\s*,?/i, '')
+          .replace(/Book\s+/i, '')
+          .replace(/for\s+\w+/i, '')
+          .replace(/When\s+can\s+I\s+collect.*$/i, '')
+          .replace(/Will\s+collect.*$/i, '')
+          .trim();
+        
+        const commonProducts = [
+          { regex: /ginger\s*tea/i, name: 'Ginger Tea' },
+          { regex: /masala\s*(?:tea|chai)/i, name: 'Masala Tea' },
+          { regex: /avocado|avacado|avokado/i, name: 'Avocado' },
+          { regex: /dragon\s*fruit/i, name: 'Dragon Fruit' },
+          { regex: /cardamom/i, name: 'Cardamom' }
+        ];
+        
+        for (const { regex, name } of commonProducts) {
+          if (regex.test(cleanContent)) {
+            const quantityPatterns = [
+              new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?\\s*(?:of\\s+)?${regex.source}`, 'i'),
+              new RegExp(`${regex.source}\\s*[-–]?\\s*(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?`, 'i'),
+              new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?\\s*${regex.source}`, 'i')
+            ];
+            
+            let quantity = '';
+            let unit = '';
+            
+            for (const pattern of quantityPatterns) {
+              const match = cleanContent.match(pattern);
+              if (match) {
+                if (match[1] && match[1].match(/\d/)) {
+                  quantity = match[1];
+                  unit = match[2] || '';
+                } else if (match[2] && match[2].match(/\d/)) {
+                  quantity = match[2];
+                  unit = match[3] || '';
+                }
+                break;
+              }
+            }
+            
+            if (!quantity && name === 'Avocado') {
+              const piecesMatch = cleanContent.match(/(\d+)\s*(?:piece|pieces|pcs)/i);
+              if (piecesMatch) {
+                quantity = piecesMatch[1];
+                unit = 'pieces';
+              }
+            }
+            
+            if (unit) {
+              unit = unit.toLowerCase();
+              if (unit === 'gm' || unit === 'gms' || unit === 'g') {
+                unit = 'gm';
+              } else if (unit === 'piece' || unit === 'pcs') {
+                unit = 'pieces';
+              }
+            }
+            
+            if (quantity) {
+              products.push({
+                product: name,
+                quantity: parseFloat(quantity),
+                unit: unit || (name === 'Avocado' ? 'pieces' : 'gm'),
+                pricePerUnit: 0,
+                amount: 0
+              });
+            }
+          }
+        }
+        
+        if (products.length > 0) {
+          products.forEach(product => {
+            orders.push({
+              date,
+              time,
+              phone: phone.replace(/\s+/g, ''),
+              customerName: customerName || 'Unknown',
+              houseNumber: houseNumber || 'Not specified',
+              product: product.product,
+              quantity: product.quantity,
+              unit: product.unit,
+              pricePerUnit: product.pricePerUnit,
+              amount: product.amount
+            });
+          });
+        }
+      }
+    }
+    
+    return orders;
+  };
+
+  const handleParse = async () => {
+    if (!messages.trim()) {
+      alert('Please paste WhatsApp messages to parse');
+      return;
+    }
+    
+    setIsLoading(true);
+    
+    try {
+      let parsed;
+      
+      if (apiKey) {
+        try {
+          parsed = await parseWithGroq(messages);
+        } catch (error) {
+          console.error('GROQ API failed, using fallback parser:', error);
+          alert('GROQ API failed. Using fallback parser. Check your API key or try again.');
+          parsed = fallbackParser(messages);
+        }
+      } else {
+        parsed = fallbackParser(messages);
+      }
+      
+      setParsedOrders(parsed);
+    } catch (error) {
+      console.error('Error parsing messages:', error);
+      alert('Error parsing messages. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleClear = () => {
+    setMessages('');
+    setParsedOrders([]);
+  };
+
+  const exportToCSV = () => {
+    if (parsedOrders.length === 0) {
+      alert('No orders to export');
+      return;
+    }
+
+    const headers = ['Date', 'Time', 'Phone Number', 'Customer Name', 'House Number', 'Product', 'Quantity', 'Unit', 'Price per Unit', 'Amount'];
+    const csvContent = [
+      headers.join(','),
+      ...parsedOrders.map(order => 
+        [
+          order.date,
+          order.time,
+          order.phone,
+          order.customerName,
+          order.houseNumber,
+          order.product,
+          order.quantity,
+          order.unit,
+          order.pricePerUnit,
+          order.amount
+        ].map(field => `"${field}"`).join(',')
+      )
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `whatsapp_orders_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 p-4">
+      {/* API Key Modal */}
+      {showApiKeyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold flex items-center">
+                <Key className="mr-2 text-green-600" size={24} />
+                GROQ API Key Required
+              </h3>
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            
+            <p className="text-gray-600 mb-4">
+              Enter your GROQ API key to enable AI-powered parsing. You can get one from{' '}
+              <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                console.groq.com
+              </a>
+            </p>
+            
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="gsk_..."
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent mb-2"
+            />
+            
+            {apiKeyError && (
+              <p className="text-red-500 text-sm mb-2 flex items-center">
+                <AlertCircle size={16} className="mr-1" />
+                {apiKeyError}
+              </p>
+            )}
+            
+            <div className="flex gap-2 mt-4">
+              <button
+                onClick={saveApiKey}
+                className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors"
+              >
+                Save API Key
+              </button>
+              <button
+                onClick={() => setShowApiKeyModal(false)}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
+              >
+                Use Fallback Parser
+              </button>
+            </div>
+            
+            <p className="text-xs text-gray-500 mt-4">
+              Your API key is stored locally in your browser and never sent to any server except GROQ.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="text-center mb-8 pt-8">
+          <h1 className="text-4xl font-bold text-gray-800 mb-2">WhatsApp Order Parser</h1>
+          <p className="text-gray-600">Transform your WhatsApp group messages into organized order data</p>
+          
+          {/* API Key Status */}
+          <div className="mt-4">
+            {apiKey ? (
+              <span className="inline-flex items-center text-sm text-green-600">
+                <Key size={16} className="mr-1" />
+                GROQ API Connected
+              </span>
+            ) : (
+              <button
+                onClick={() => setShowApiKeyModal(true)}
+                className="inline-flex items-center text-sm text-gray-600 hover:text-green-600"
+              >
+                <Key size={16} className="mr-1" />
+                Add GROQ API Key for Better Parsing
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Input Section */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center mb-4">
+            <MessageSquare className="text-green-600 mr-2" size={24} />
+            <h2 className="text-xl font-semibold text-gray-800">Paste WhatsApp Messages</h2>
+          </div>
+          <p className="text-gray-600 mb-4">Copy and paste your WhatsApp group messages here to parse order information</p>
+          
+          <textarea
+            value={messages}
+            onChange={(e) => setMessages(e.target.value)}
+            placeholder="Paste your WhatsApp messages here... Example: [07-07-2025 16:10] +91 96198 82148: Ginger tea 250 gm and masala tea 250gm A1 1023"
+            className="w-full h-64 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none font-mono text-sm"
+          />
+          
+          <div className="flex gap-4 mt-4">
+            <button
+              onClick={handleParse}
+              disabled={isLoading}
+              className="flex items-center px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:bg-gray-400"
+            >
+              <Sparkles className="mr-2" size={20} />
+              {isLoading ? 'Parsing...' : `Parse Messages ${apiKey ? '(AI)' : '(Fallback)'}`}
+            </button>
+            
+            <button
+              onClick={handleClear}
+              className="flex items-center px-6 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+            >
+              <Trash2 className="mr-2" size={20} />
+              Clear All
+            </button>
+          </div>
+        </div>
+
+        {/* Results Section */}
+        {parsedOrders.length > 0 && (
+          <div className="bg-white rounded-lg shadow-md p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-semibold text-gray-800">Parsed Orders ({parsedOrders.length})</h2>
+              <button
+                onClick={exportToCSV}
+                className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Download className="mr-2" size={20} />
+                Export CSV
+              </button>
+            </div>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="bg-gray-100">
+                    <th className="border border-gray-300 px-4 py-2 text-left">Date</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Time</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Phone</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Customer</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">House #</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Product</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Quantity</th>
+                    <th className="border border-gray-300 px-4 py-2 text-left">Unit</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsedOrders.map((order, index) => (
+                    <tr key={index} className="hover:bg-gray-50">
+                      <td className="border border-gray-300 px-4 py-2">{order.date}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.time}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.phone}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.customerName}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.houseNumber}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.product}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.quantity}</td>
+                      <td className="border border-gray-300 px-4 py-2">{order.unit}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default WhatsAppOrderParser;
