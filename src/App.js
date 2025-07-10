@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Sparkles, Download, Trash2, Key, AlertCircle, X, FileText } from 'lucide-react';
+import { MessageSquare, Sparkles, Download, Trash2, Key, AlertCircle, FileText, Save, Check } from 'lucide-react';
 import './App.css';
 
 const WhatsAppOrderParser = () => {
@@ -7,10 +7,11 @@ const WhatsAppOrderParser = () => {
   const [parsedOrders, setParsedOrders] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [apiKey, setApiKey] = useState('');
-  const [showApiKeyModal, setShowApiKeyModal] = useState(true);
   const [apiKeyError, setApiKeyError] = useState('');
   const [customPrompt, setCustomPrompt] = useState('');
   const [showCustomPrompt, setShowCustomPrompt] = useState(false);
+  const [promptSaved, setPromptSaved] = useState(false);
+  const [apiKeySaved, setApiKeySaved] = useState(false);
 
   // Load API key and custom prompt from localStorage on mount
   useEffect(() => {
@@ -18,7 +19,7 @@ const WhatsAppOrderParser = () => {
     const savedPrompt = localStorage.getItem('custom_prompt');
     if (savedKey) {
       setApiKey(savedKey);
-      setShowApiKeyModal(false);
+      setApiKeySaved(true);
     }
     if (savedPrompt) {
       setCustomPrompt(savedPrompt);
@@ -32,13 +33,31 @@ const WhatsAppOrderParser = () => {
       return;
     }
     localStorage.setItem('groq_api_key', apiKey);
-    setShowApiKeyModal(false);
     setApiKeyError('');
+    setApiKeySaved(true);
+    
+    // Show saved indicator
+    setTimeout(() => {
+      setApiKeySaved(false);
+    }, 3000);
+  };
+
+  // Clear API key
+  const clearApiKey = () => {
+    setApiKey('');
+    localStorage.removeItem('groq_api_key');
+    setApiKeySaved(false);
   };
 
   // Save custom prompt to localStorage
   const saveCustomPrompt = () => {
     localStorage.setItem('custom_prompt', customPrompt);
+    setPromptSaved(true);
+    
+    // Show saved indicator for 3 seconds
+    setTimeout(() => {
+      setPromptSaved(false);
+    }, 3000);
   };
 
   // Parse with GROQ API
@@ -446,93 +465,66 @@ Return a JSON object with an "orders" array where each order has these fields:
 
   return (
     <div className="min-h-screen bg-gray-50 p-4">
-      {/* API Key Modal */}
-      {showApiKeyModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold flex items-center">
-                <Key className="mr-2 text-green-600" size={24} />
-                GROQ API Key Required
-              </h3>
-              <button
-                onClick={() => setShowApiKeyModal(false)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            
-            <p className="text-gray-600 mb-4">
-              Enter your GROQ API key to enable AI-powered parsing. You can get one from{' '}
-              <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
-                console.groq.com
-              </a>
-            </p>
-            
-            <input
-              type="password"
-              value={apiKey}
-              onChange={(e) => setApiKey(e.target.value)}
-              placeholder="gsk_..."
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent mb-2"
-            />
-            
-            {apiKeyError && (
-              <p className="text-red-500 text-sm mb-2 flex items-center">
-                <AlertCircle size={16} className="mr-1" />
-                {apiKeyError}
-              </p>
-            )}
-            
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={saveApiKey}
-                className="flex-1 bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 transition-colors"
-              >
-                Save API Key
-              </button>
-              <button
-                onClick={() => setShowApiKeyModal(false)}
-                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg hover:bg-gray-300 transition-colors"
-              >
-                Use Fallback Parser
-              </button>
-            </div>
-            
-            <p className="text-xs text-gray-500 mt-4">
-              Your API key is stored locally in your browser and never sent to any server except GROQ.
-            </p>
-          </div>
-        </div>
-      )}
-
       <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-8 pt-8">
           <h1 className="text-4xl font-bold text-gray-800 mb-2">WhatsApp Order Parser</h1>
           <p className="text-gray-600">Transform your WhatsApp group messages into organized order data</p>
+        </div>
+
+        {/* API Key Section - Always visible */}
+        <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+          <div className="flex items-center mb-4">
+            <Key className="text-green-600 mr-2" size={24} />
+            <h2 className="text-xl font-semibold text-gray-800">GROQ API Key (Optional)</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Enter your GROQ API key for AI-powered parsing. Get one from{' '}
+            <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+              console.groq.com
+            </a>
+          </p>
           
-          {/* API Key Status */}
-          <div className="mt-4">
-            {apiKey ? (
-              <span className="inline-flex items-center text-sm text-green-600">
-                <Key size={16} className="mr-1" />
-                GROQ API Connected
-              </span>
-            ) : (
+          <div className="flex gap-2">
+            <input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="gsk_..."
+              className="flex-1 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent"
+            />
+            <button
+              onClick={saveApiKey}
+              className="px-4 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+            >
+              {apiKeySaved ? <Check size={20} className="mr-2" /> : <Save size={20} className="mr-2" />}
+              {apiKeySaved ? 'Saved' : 'Save'}
+            </button>
+            {apiKey && (
               <button
-                onClick={() => setShowApiKeyModal(true)}
-                className="inline-flex items-center text-sm text-gray-600 hover:text-green-600"
+                onClick={clearApiKey}
+                className="px-4 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
               >
-                <Key size={16} className="mr-1" />
-                Add GROQ API Key for Better Parsing
+                Clear
               </button>
             )}
           </div>
+          
+          {apiKeyError && (
+            <p className="text-red-500 text-sm mt-2 flex items-center">
+              <AlertCircle size={16} className="mr-1" />
+              {apiKeyError}
+            </p>
+          )}
+          
+          {apiKey && !apiKeyError && (
+            <p className="text-green-600 text-sm mt-2">
+              ✓ API key configured. AI parsing enabled.
+            </p>
+          )}
         </div>
 
-        {/* Custom Prompt Section */}
+        {/* Custom Prompt Section - Always visible when API key is present */}
         {apiKey && (
           <div className="bg-white rounded-lg shadow-md p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
@@ -557,14 +549,25 @@ Return a JSON object with an "orders" array where each order has these fields:
                 <textarea
                   value={customPrompt}
                   onChange={(e) => setCustomPrompt(e.target.value)}
-                  onBlur={saveCustomPrompt}
                   placeholder="Example: Also look for products like Tomatoes, Potatoes, Onions. Customer names often appear after 'Delivered to:'. Handle messages in Hindi transliteration..."
-                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none font-mono text-sm"
+                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none font-mono text-sm mb-2"
                 />
                 
-                <p className="text-xs text-gray-500 mt-2">
-                  Instructions are automatically saved and will be used when parsing with AI.
-                </p>
+                <div className="flex justify-between items-center">
+                  <button
+                    onClick={saveCustomPrompt}
+                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center"
+                  >
+                    {promptSaved ? <Check size={16} className="mr-2" /> : <Save size={16} className="mr-2" />}
+                    {promptSaved ? 'Saved' : 'Save Instructions'}
+                  </button>
+                  
+                  {customPrompt && (
+                    <p className="text-green-600 text-sm">
+                      {customPrompt.length} characters • Active
+                    </p>
+                  )}
+                </div>
               </div>
             )}
           </div>
