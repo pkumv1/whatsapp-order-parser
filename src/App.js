@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Sparkles, Download, Trash2, Key, AlertCircle, X } from 'lucide-react';
+import { MessageSquare, Sparkles, Download, Trash2, Key, AlertCircle, X, FileText } from 'lucide-react';
 import './App.css';
 
 const WhatsAppOrderParser = () => {
@@ -9,13 +9,19 @@ const WhatsAppOrderParser = () => {
   const [apiKey, setApiKey] = useState('');
   const [showApiKeyModal, setShowApiKeyModal] = useState(true);
   const [apiKeyError, setApiKeyError] = useState('');
+  const [customPrompt, setCustomPrompt] = useState('');
+  const [showCustomPrompt, setShowCustomPrompt] = useState(false);
 
-  // Load API key from localStorage on mount
+  // Load API key and custom prompt from localStorage on mount
   useEffect(() => {
     const savedKey = localStorage.getItem('groq_api_key');
+    const savedPrompt = localStorage.getItem('custom_prompt');
     if (savedKey) {
       setApiKey(savedKey);
       setShowApiKeyModal(false);
+    }
+    if (savedPrompt) {
+      setCustomPrompt(savedPrompt);
     }
   }, []);
 
@@ -30,9 +36,14 @@ const WhatsAppOrderParser = () => {
     setApiKeyError('');
   };
 
+  // Save custom prompt to localStorage
+  const saveCustomPrompt = () => {
+    localStorage.setItem('custom_prompt', customPrompt);
+  };
+
   // Parse with GROQ API
   const parseWithGroq = async (messageText) => {
-    const systemPrompt = `You are an order parser for a WhatsApp fruit and vegetable business. 
+    const baseSystemPrompt = `You are an order parser for a WhatsApp fruit and vegetable business. 
 Extract orders from WhatsApp messages and return structured JSON data.
 
 Each message follows pattern: [Date Time] Phone: Order details
@@ -66,7 +77,14 @@ Extract:
 Important: 
 - If a message contains multiple products, create separate entries for each product with the same customer details.
 - When "each" is used with quantity, apply that quantity to all mentioned products.
-- Be flexible with house number formats (A1 102, A1-102, B1 324, etc.)
+- Be flexible with house number formats (A1 102, A1-102, B1 324, etc.)`;
+
+    // Append custom prompt if provided
+    const systemPrompt = customPrompt.trim() 
+      ? `${baseSystemPrompt}\n\nAdditional Instructions:\n${customPrompt}`
+      : baseSystemPrompt;
+
+    const finalSystemPrompt = `${systemPrompt}
 
 Return a JSON object with an "orders" array where each order has these fields:
 {
@@ -96,7 +114,7 @@ Return a JSON object with an "orders" array where each order has these fields:
         body: JSON.stringify({
           model: 'mixtral-8x7b-32768',
           messages: [
-            { role: 'system', content: systemPrompt },
+            { role: 'system', content: finalSystemPrompt },
             { role: 'user', content: userPrompt }
           ],
           temperature: 0.1,
@@ -493,6 +511,44 @@ Return a JSON object with an "orders" array where each order has these fields:
             )}
           </div>
         </div>
+
+        {/* Custom Prompt Section */}
+        {apiKey && (
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center">
+                <FileText className="text-green-600 mr-2" size={24} />
+                <h2 className="text-xl font-semibold text-gray-800">Custom Instructions (Optional)</h2>
+              </div>
+              <button
+                onClick={() => setShowCustomPrompt(!showCustomPrompt)}
+                className="text-sm text-blue-600 hover:text-blue-700"
+              >
+                {showCustomPrompt ? 'Hide' : 'Show'}
+              </button>
+            </div>
+            
+            {showCustomPrompt && (
+              <div>
+                <p className="text-gray-600 mb-4">
+                  Add custom instructions to help the AI better understand your specific products, formats, or parsing rules.
+                </p>
+                
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  onBlur={saveCustomPrompt}
+                  placeholder="Example: Also look for products like Tomatoes, Potatoes, Onions. Customer names often appear after 'Delivered to:'. Handle messages in Hindi transliteration..."
+                  className="w-full h-32 p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent resize-none font-mono text-sm"
+                />
+                
+                <p className="text-xs text-gray-500 mt-2">
+                  Instructions are automatically saved and will be used when parsing with AI.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Input Section */}
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
