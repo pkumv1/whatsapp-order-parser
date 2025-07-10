@@ -36,25 +36,37 @@ const WhatsAppOrderParser = () => {
 Extract orders from WhatsApp messages and return structured JSON data.
 
 Each message follows pattern: [Date Time] Phone: Order details
+Note: Some messages may span multiple lines. A new message starts with a timestamp in square brackets.
 
 Products to look for:
 - Ginger Tea (variations: ginger tea, Ginger tea)
 - Masala Tea (variations: masala tea, masala chai, Masala Chai)
-- Avocado (variations: avocado, avacado, avokado)
-- Dragon Fruit (variations: dragon fruit, Dragon fruit)
+- Avocado (variations: avocado, avacado, avokado, Avacado)
+- Dragon Fruit (variations: dragon fruit, Dragon fruit, dragon, Dragon)
 - Cardamom
+
+Special parsing rules:
+1. "Dragon" alone refers to "Dragon Fruit"
+2. "one kg each" or "1 kg each" means 1 kg for each product mentioned
+3. Handle ellipsis (..., …) in messages
+4. Ignore emojis
+5. Multi-line messages: content continues until the next timestamp
+6. If quantity is mentioned once for multiple products (e.g., "Avocado and Dragon fruit one kg each"), apply that quantity to each product
 
 Extract:
 - Date (DD-MM-YYYY format from square brackets)
 - Time (HH:MM format from square brackets)
 - Phone number (extract the full number after the time)
 - Customer name (if mentioned after "for" or at end after dash)
-- House number (format like A1-1023, B4-512, etc.)
+- House number (format like A1-102, B1-324, A3-1319, etc. - may have hyphen or space)
 - Products ordered (handle multiple products per message)
 - Quantity for each product
 - Unit (gm, kg, pieces)
 
-Important: If a message contains multiple products, create separate entries for each product with the same customer details.
+Important: 
+- If a message contains multiple products, create separate entries for each product with the same customer details.
+- When "each" is used with quantity, apply that quantity to all mentioned products.
+- Be flexible with house number formats (A1 102, A1-102, B1 324, etc.)
 
 Return a JSON object with an "orders" array where each order has these fields:
 {
@@ -114,62 +126,142 @@ Return a JSON object with an "orders" array where each order has these fields:
     }
   };
 
-  // Fallback parser (when no API key or API fails)
-  const fallbackParser = (messageText) => {
-    const lines = messageText.split('\n').filter(line => line.trim());
-    const orders = [];
-    
+  // Helper function to remove emojis
+  const removeEmojis = (text) => {
+    return text.replace(/[\u{1F600}-\u{1F64F}]|[\u{1F300}-\u{1F5FF}]|[\u{1F680}-\u{1F6FF}]|[\u{1F1E0}-\u{1F1FF}]|[\u{2600}-\u{26FF}]|[\u{2700}-\u{27BF}]/gu, '').trim();
+  };
+
+  // Helper function to parse multi-line messages
+  const parseMultiLineMessages = (text) => {
+    const lines = text.split('\n');
+    const messages = [];
+    let currentMessage = null;
+
     for (const line of lines) {
       const messageMatch = line.match(/\[(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})\]\s+(\+\d+\s+\d+\s+\d+):\s*(.+)/);
       
       if (messageMatch) {
-        const [, date, time, phone, content] = messageMatch;
-        
-        const namePatterns = [
-          /for\s+([A-Za-z]+)\s+[A-Z]\d/i,
-          /[–-]\s*([A-Za-z]+)$/,
-          /Good\s+morning\s+([A-Za-z]+)/i
-        ];
-        
-        let customerName = '';
-        for (const pattern of namePatterns) {
-          const nameMatch = content.match(pattern);
-          if (nameMatch) {
-            customerName = nameMatch[1];
-            break;
-          }
+        // New message starts
+        if (currentMessage) {
+          messages.push(currentMessage);
         }
-        
-        const housePattern = /([A-Z]\d+[\s-]\d+)/;
-        const houseMatch = content.match(housePattern);
-        const houseNumber = houseMatch ? houseMatch[1].replace(/\s/g, '-') : '';
-        
-        const products = [];
-        
-        let cleanContent = content
-          .replace(houseNumber, '')
-          .replace(/Good\s+morning\s+\w+\s*,?/i, '')
-          .replace(/Book\s+/i, '')
-          .replace(/for\s+\w+/i, '')
-          .replace(/When\s+can\s+I\s+collect.*$/i, '')
-          .replace(/Will\s+collect.*$/i, '')
-          .trim();
-        
-        const commonProducts = [
-          { regex: /ginger\s*tea/i, name: 'Ginger Tea' },
-          { regex: /masala\s*(?:tea|chai)/i, name: 'Masala Tea' },
-          { regex: /avocado|avacado|avokado/i, name: 'Avocado' },
-          { regex: /dragon\s*fruit/i, name: 'Dragon Fruit' },
-          { regex: /cardamom/i, name: 'Cardamom' }
-        ];
+        currentMessage = {
+          date: messageMatch[1],
+          time: messageMatch[2],
+          phone: messageMatch[3],
+          content: messageMatch[4]
+        };
+      } else if (currentMessage && line.trim()) {
+        // Continue previous message
+        currentMessage.content += ' ' + line.trim();
+      }
+    }
+    
+    if (currentMessage) {
+      messages.push(currentMessage);
+    }
+    
+    return messages;
+  };
+
+  // Fallback parser (when no API key or API fails)
+  const fallbackParser = (messageText) => {
+    const messages = parseMultiLineMessages(messageText);
+    const orders = [];
+    
+    for (const message of messages) {
+      const { date, time, phone, content: rawContent } = message;
+      
+      // Remove emojis and clean content
+      const content = removeEmojis(rawContent);
+      
+      const namePatterns = [
+        /for\s+([A-Za-z]+)\s+[A-Z]\d/i,
+        /[–-]\s*([A-Za-z]+)$/,
+        /Good\s+morning\s+([A-Za-z]+)/i
+      ];
+      
+      let customerName = '';
+      for (const pattern of namePatterns) {
+        const nameMatch = content.match(pattern);
+        if (nameMatch) {
+          customerName = nameMatch[1];
+          break;
+        }
+      }
+      
+      // More flexible house number pattern
+      const housePattern = /([A-Z]\d+[\s-]?\d+)/;
+      const houseMatch = content.match(housePattern);
+      const houseNumber = houseMatch ? houseMatch[1].replace(/\s+/, '-') : '';
+      
+      const products = [];
+      
+      let cleanContent = content
+        .replace(houseNumber, '')
+        .replace(/Good\s+morning\s+\w+\s*,?/i, '')
+        .replace(/Book\s+/i, '')
+        .replace(/for\s+\w+/i, '')
+        .replace(/When\s+can\s+I\s+collect.*$/i, '')
+        .replace(/Will\s+collect.*$/i, '')
+        .replace(/[…\.]+/g, '') // Remove ellipsis
+        .trim();
+      
+      // Extended product patterns with abbreviations
+      const commonProducts = [
+        { regex: /ginger\s*tea/i, name: 'Ginger Tea' },
+        { regex: /masala\s*(?:tea|chai)/i, name: 'Masala Tea' },
+        { regex: /(?:avocado|avacado|avokado)/i, name: 'Avocado' },
+        { regex: /(?:dragon\s*fruit|dragon\s+(?!fruit))/i, name: 'Dragon Fruit' },
+        { regex: /cardamom/i, name: 'Cardamom' }
+      ];
+      
+      // Check for "X and Y ... one kg each" pattern
+      const eachPattern = /(.+?)\s+and\s+(.+?)\s*[…\.]*\s*one\s+kg\s+each/i;
+      const eachMatch = cleanContent.match(eachPattern);
+      
+      if (eachMatch) {
+        // Handle "each" pattern
+        const product1 = eachMatch[1].trim();
+        const product2 = eachMatch[2].trim();
         
         for (const { regex, name } of commonProducts) {
-          if (regex.test(cleanContent)) {
+          if (regex.test(product1) || (name === 'Dragon Fruit' && /dragon/i.test(product1))) {
+            products.push({
+              product: name,
+              quantity: 1,
+              unit: 'kg',
+              pricePerUnit: 0,
+              amount: 0
+            });
+          }
+          if (regex.test(product2) || (name === 'Dragon Fruit' && /dragon/i.test(product2))) {
+            products.push({
+              product: name,
+              quantity: 1,
+              unit: 'kg',
+              pricePerUnit: 0,
+              amount: 0
+            });
+          }
+        }
+      } else {
+        // Regular parsing
+        for (const { regex, name } of commonProducts) {
+          if (regex.test(cleanContent) || (name === 'Dragon Fruit' && /\bdragon\b/i.test(cleanContent))) {
             const quantityPatterns = [
               new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?\\s*(?:of\\s+)?${regex.source}`, 'i'),
               new RegExp(`${regex.source}\\s*[-–]?\\s*(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?`, 'i'),
               new RegExp(`(\\d+(?:\\.\\d+)?)\\s*(kg|gm|gms|g|piece|pieces|pcs)?\\s*${regex.source}`, 'i')
             ];
+            
+            // Special pattern for abbreviated Dragon
+            if (name === 'Dragon Fruit') {
+              quantityPatterns.push(
+                /(\\d+(?:\\.\\d+)?)\s*(kg|gm|gms|g)?\s*dragon\b/i,
+                /dragon\s*fruit?\s*(\\d+(?:\\.\\d+)?)\s*(kg|gm|gms|g)?/i
+              );
+            }
             
             let quantity = '';
             let unit = '';
@@ -206,33 +298,37 @@ Return a JSON object with an "orders" array where each order has these fields:
             }
             
             if (quantity) {
-              products.push({
-                product: name,
-                quantity: parseFloat(quantity),
-                unit: unit || (name === 'Avocado' ? 'pieces' : 'gm'),
-                pricePerUnit: 0,
-                amount: 0
-              });
+              // Avoid duplicate products
+              const alreadyAdded = products.some(p => p.product === name);
+              if (!alreadyAdded) {
+                products.push({
+                  product: name,
+                  quantity: parseFloat(quantity),
+                  unit: unit || (name === 'Avocado' ? 'pieces' : 'gm'),
+                  pricePerUnit: 0,
+                  amount: 0
+                });
+              }
             }
           }
         }
-        
-        if (products.length > 0) {
-          products.forEach(product => {
-            orders.push({
-              date,
-              time,
-              phone: phone.replace(/\s+/g, ''),
-              customerName: customerName || 'Unknown',
-              houseNumber: houseNumber || 'Not specified',
-              product: product.product,
-              quantity: product.quantity,
-              unit: product.unit,
-              pricePerUnit: product.pricePerUnit,
-              amount: product.amount
-            });
+      }
+      
+      if (products.length > 0) {
+        products.forEach(product => {
+          orders.push({
+            date,
+            time,
+            phone: phone.replace(/\s+/g, ''),
+            customerName: customerName || 'Unknown',
+            houseNumber: houseNumber || 'Not specified',
+            product: product.product,
+            quantity: product.quantity,
+            unit: product.unit,
+            pricePerUnit: product.pricePerUnit,
+            amount: product.amount
           });
-        }
+        });
       }
     }
     
