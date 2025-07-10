@@ -131,7 +131,7 @@ Return a JSON object with an "orders" array where each order has these fields:
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'mixtral-8x7b-32768',
+          model: 'llama3-8b-8192', // Updated to currently supported model
           messages: [
             { role: 'system', content: finalSystemPrompt },
             { role: 'user', content: userPrompt }
@@ -150,6 +150,8 @@ Return a JSON object with an "orders" array where each order has these fields:
           throw new Error('Invalid API key. Please check your GROQ API key.');
         } else if (response.status === 429) {
           throw new Error('Rate limit exceeded. Please try again later.');
+        } else if (response.status === 400 && errorData.includes('model_decommissioned')) {
+          throw new Error('The AI model has been updated. Please refresh the page and try again.');
         } else {
           throw new Error(`API Error: ${response.status} - ${errorData}`);
         }
@@ -522,6 +524,10 @@ Return a JSON object with an "orders" array where each order has these fields:
               ✓ API key configured. AI parsing enabled.
             </p>
           )}
+          
+          <p className="text-amber-600 text-sm mt-2">
+            Note: Using llama3-8b-8192 model (updated from deprecated mixtral-8x7b)
+          </p>
         </div>
 
         {/* Custom Prompt Section - Always visible when API key is present */}
