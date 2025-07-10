@@ -124,10 +124,24 @@ Return a JSON object with an "orders" array where each order has these fields:
       });
 
       if (!response.ok) {
-        throw new Error(`API Error: ${response.status}`);
+        const errorData = await response.text();
+        console.error('GROQ API Error Response:', errorData);
+        
+        if (response.status === 401) {
+          throw new Error('Invalid API key. Please check your GROQ API key.');
+        } else if (response.status === 429) {
+          throw new Error('Rate limit exceeded. Please try again later.');
+        } else {
+          throw new Error(`API Error: ${response.status} - ${errorData}`);
+        }
       }
 
       const data = await response.json();
+      
+      if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+        throw new Error('Invalid response format from GROQ API');
+      }
+      
       const result = JSON.parse(data.choices[0].message.content);
       
       // Add price and amount fields (you can customize these)
@@ -151,18 +165,21 @@ Return a JSON object with an "orders" array where each order has these fields:
 
   // Helper function to parse multi-line messages
   const parseMultiLineMessages = (text) => {
+    // Split by newline but keep empty lines to track message boundaries
     const lines = text.split('\n');
     const messages = [];
     let currentMessage = null;
-
-    for (const line of lines) {
+    
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
       const messageMatch = line.match(/\[(\d{2}-\d{2}-\d{4})\s+(\d{2}:\d{2})\]\s+(\+\d+\s+\d+\s+\d+):\s*(.+)/);
       
       if (messageMatch) {
-        // New message starts
+        // Save previous message if exists
         if (currentMessage) {
           messages.push(currentMessage);
         }
+        // Start new message
         currentMessage = {
           date: messageMatch[1],
           time: messageMatch[2],
@@ -170,11 +187,12 @@ Return a JSON object with an "orders" array where each order has these fields:
           content: messageMatch[4]
         };
       } else if (currentMessage && line.trim()) {
-        // Continue previous message
+        // Continue previous message (multi-line)
         currentMessage.content += ' ' + line.trim();
       }
     }
     
+    // Don't forget the last message
     if (currentMessage) {
       messages.push(currentMessage);
     }
@@ -222,7 +240,7 @@ Return a JSON object with an "orders" array where each order has these fields:
         .replace(/for\s+\w+/i, '')
         .replace(/When\s+can\s+I\s+collect.*$/i, '')
         .replace(/Will\s+collect.*$/i, '')
-        .replace(/[….]+/g, '') // Remove ellipsis - fixed escape character
+        .replace(/[….]+/g, '') // Remove ellipsis
         .trim();
       
       // Extended product patterns with abbreviations
@@ -235,7 +253,7 @@ Return a JSON object with an "orders" array where each order has these fields:
       ];
       
       // Check for "X and Y ... one kg each" pattern
-      const eachPattern = /(.+?)\s+and\s+(.+?)\s*[….]?\s*one\s+kg\s+each/i; // Fixed escape character
+      const eachPattern = /(.+?)\s+and\s+(.+?)\s*[….]?\s*one\s+kg\s+each/i;
       const eachMatch = cleanContent.match(eachPattern);
       
       if (eachMatch) {
@@ -369,7 +387,9 @@ Return a JSON object with an "orders" array where each order has these fields:
           parsed = await parseWithGroq(messages);
         } catch (error) {
           console.error('GROQ API failed, using fallback parser:', error);
-          alert('GROQ API failed. Using fallback parser. Check your API key or try again.');
+          // Show more specific error message
+          const errorMessage = error.message || 'GROQ API failed. Using fallback parser.';
+          alert(errorMessage + '\n\nUsing fallback parser instead.');
           parsed = fallbackParser(messages);
         }
       } else {
