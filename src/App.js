@@ -204,7 +204,7 @@ Return a JSON object with an "orders" array where each order has these fields:
         .replace(/for\s+\w+/i, '')
         .replace(/When\s+can\s+I\s+collect.*$/i, '')
         .replace(/Will\s+collect.*$/i, '')
-        .replace(/[…\.]+/g, '') // Remove ellipsis
+        .replace(/[….]+/g, '') // Remove ellipsis - fixed escape character
         .trim();
       
       // Extended product patterns with abbreviations
@@ -217,7 +217,7 @@ Return a JSON object with an "orders" array where each order has these fields:
       ];
       
       // Check for "X and Y ... one kg each" pattern
-      const eachPattern = /(.+?)\s+and\s+(.+?)\s*[…\.]*\s*one\s+kg\s+each/i;
+      const eachPattern = /(.+?)\s+and\s+(.+?)\s*[….]?\s*one\s+kg\s+each/i; // Fixed escape character
       const eachMatch = cleanContent.match(eachPattern);
       
       if (eachMatch) {
@@ -258,8 +258,8 @@ Return a JSON object with an "orders" array where each order has these fields:
             // Special pattern for abbreviated Dragon
             if (name === 'Dragon Fruit') {
               quantityPatterns.push(
-                /(\\d+(?:\\.\\d+)?)\s*(kg|gm|gms|g)?\s*dragon\b/i,
-                /dragon\s*fruit?\s*(\\d+(?:\\.\\d+)?)\s*(kg|gm|gms|g)?/i
+                /(\d+(?:\.\d+)?)\s*(kg|gm|gms|g)?\s*dragon\b/i,
+                /dragon\s*fruit?\s*(\d+(?:\.\d+)?)\s*(kg|gm|gms|g)?/i
               );
             }
             
